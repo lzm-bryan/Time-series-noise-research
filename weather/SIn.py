@@ -166,17 +166,17 @@ def train_and_evaluate(seed):
         'test_mse': test_mse
     }
 
+
+# Seeds for reproducibility
 seeds = [42, 2021, 1234, 5678]
 results = []
-test_predictions = []
-
 for seed in seeds:
     result = train_and_evaluate(seed)
     results.append(result)
-    test_predictions.append(result[2])
 
 # 计算平均值和方差
-test_mae, test_mse = zip(*results[:2])
+test_mae = [r['test_mae'] for r in results]
+test_mse = [r['test_mse'] for r in results]
 mean_mae = np.mean(test_mae)
 std_mae = np.std(test_mae)
 mean_mse = np.mean(test_mse)
@@ -185,17 +185,24 @@ std_mse = np.std(test_mse)
 print(f'Average Test MAE: {mean_mae}, Standard Deviation: {std_mae}')
 print(f'Average Test MSE: {mean_mse}, Standard Deviation: {std_mse}')
 
-# 计算所有种子的预测值的平均值
-mean_test_predict = np.mean(test_predictions, axis=0)
+# 确保绘图时的长度一致
+train_indices = data.index[look_back:train_size + look_back]
+val_indices = data.index[train_size + look_back:train_size + val_size + look_back]
+test_indices = data.index[train_size + val_size + look_back:len(data) - 1]
 
-# 反归一化真实值
-Y_test_inv = scaler.inverse_transform(Y_test)
-
-# 绘制所有种子在测试集上的预测值的平均值和真实值的比较图
+# 绘制结果
 plt.figure(figsize=(10, 6))
-plt.plot(Y_test_inv, label='Real Value')
-plt.plot(mean_test_predict, label='Average Prediction')
-plt.title('Comparison of Real Value and Average Prediction for All Seeds')
+plt.plot(data.index[:train_size + look_back], data[:train_size + look_back], label='Train Series')
+plt.plot(data.index[train_size + look_back:train_size + val_size + look_back],
+         data[train_size + look_back:train_size + val_size + look_back], label='Validation Series')
+plt.plot(data.index[train_size + val_size + look_back:], data[train_size + val_size + look_back:], label='Test Series')
+
+for i, result in enumerate(results):
+    plt.plot(train_indices, result['train_predict'], label=f'Train Predict (Seed {seeds[i]})', alpha=0.6)
+    plt.plot(val_indices, result['val_predict'], label=f'Validation Predict (Seed {seeds[i]})', alpha=0.6)
+    plt.plot(test_indices, result['test_predict'], label=f'Test Predict (Seed {seeds[i]})', alpha=0.6)
+
+plt.title('Time Series Prediction using LSTM (PyTorch)')
 plt.legend()
-plt.savefig('sin-average_prediction_comparison.png')
+plt.savefig('prediction.png')
 plt.show()
