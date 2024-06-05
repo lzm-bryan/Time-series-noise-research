@@ -29,7 +29,7 @@ def create_dataset(data, look_back=1):
     return np.array(X), np.array(Y)
 
 
-look_back = 7
+look_back = 96
 X, Y = create_dataset(data_scaled, look_back)
 
 # 划分训练集、验证集和测试集
@@ -130,7 +130,7 @@ def train_and_evaluate(seed, params):
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # 初次训练模型
-    epochs = 111
+    epochs = 100
     print(f"Training with params: {params}")
     best_val_loss = float('inf')
     for epoch in range(epochs):
@@ -257,7 +257,7 @@ seeds = [42, 2021, 1234, 5678]
 results = []
 
 # 使用最佳参数训练模型
-best_params = {'correction_threshold': 0.1, 'weight_decay_factor': 0.9}
+best_params = {'correction_threshold': 0.2, 'weight_decay_factor': 0.9}
 
 for seed in seeds:
     result = train_and_evaluate(seed, best_params)

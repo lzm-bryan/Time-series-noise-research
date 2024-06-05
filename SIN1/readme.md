@@ -1,0 +1,10 @@
+单变量回归时序预测问题
+两个数据集ETTh1和ETTh2
+都只使用最后一列OT进行单变量回归时序预测
+SIn.py是LSTM
+Sin_noise.py是增加噪声的LSTM
+Sin_noise_correctv1.py是reweight的方法
+Sin_noise_correctv3.py是改进版reweight
+noise_seed.py是增加噪声的LSTM多个seed求平均值
+v3_seed.py是改进版reweight多个seed求平均值
+v3_para.py是寻找最合适的reweight参数

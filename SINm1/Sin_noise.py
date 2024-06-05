@@ -26,7 +26,7 @@ def create_dataset(data, look_back=1):
         Y.append(data[i + look_back, 0])
     return np.array(X), np.array(Y)
 
-look_back = 96
+look_back = 7
 X, Y = create_dataset(data_scaled, look_back)
 
 # 划分训练集、验证集和测试集
@@ -93,7 +93,7 @@ loss_function = nn.MSELoss()
 optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 # 训练模型
-epochs = 333
+epochs = 300
 best_val_loss = float('inf')
 
 for epoch in range(epochs):

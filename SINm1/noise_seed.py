@@ -111,7 +111,7 @@ def train_and_evaluate(seed):
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # 训练模型
-    epochs = 333
+    epochs = 300
     best_val_loss = float('inf')
 
     for epoch in range(epochs):
