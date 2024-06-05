@@ -140,13 +140,13 @@ def train_and_evaluate(seed):
         val_loss /= len(val_dataloader)
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), 'nbest_model.pth')
+            torch.save(model.state_dict(), 'noisebest_model.pth')
 
         if epoch % 10 == 0:
             print(f'Epoch {epoch} loss: {epoch_loss / len(train_dataloader)}, Validation loss: {val_loss}')
 
     # 加载最佳模型
-    model.load_state_dict(torch.load('nbest_model.pth'))
+    model.load_state_dict(torch.load('noisebest_model.pth'))
     model.eval()
     with torch.no_grad():
         test_predict = model(X_test_tensor.to(device)).cpu().numpy()
@@ -162,17 +162,16 @@ def train_and_evaluate(seed):
 
     return test_mae, test_mse
 
+
 seeds = [42, 2021, 1234, 5678]
 results = []
-test_predictions = []
 
 for seed in seeds:
     result = train_and_evaluate(seed)
     results.append(result)
-    test_predictions.append(result[2])
 
 # 计算平均值和方差
-test_mae, test_mse = zip(*results[:2])
+test_mae, test_mse = zip(*results)
 mean_mae = np.mean(test_mae)
 std_mae = np.std(test_mae)
 mean_mse = np.mean(test_mse)
@@ -181,17 +180,30 @@ std_mse = np.std(test_mse)
 print(f'Average Test MAE: {mean_mae}, Standard Deviation: {std_mae}')
 print(f'Average Test MSE: {mean_mse}, Standard Deviation: {std_mse}')
 
-# 计算所有种子的预测值的平均值
-mean_test_predict = np.mean(test_predictions, axis=0)
+# 可视化结果
+fig, ax1 = plt.subplots()
 
-# 反归一化真实值
-Y_test_inv = scaler.inverse_transform(Y_test)
+# 绘制MAE
+color = 'tab:blue'
+ax1.set_xlabel('Seeds')
+ax1.set_ylabel('Test MAE', color=color)
+ax1.plot(seeds, test_mae, 'o-', color=color, label='Test MAE')
+ax1.tick_params(axis='y', labelcolor=color)
 
-# 绘制所有种子在测试集上的预测值的平均值和真实值的比较图
-plt.figure(figsize=(10, 6))
-plt.plot(Y_test_inv, label='Real Value')
-plt.plot(mean_test_predict, label='Average Prediction')
-plt.title('Comparison of Real Value and Average Prediction for All Seeds')
-plt.legend()
-plt.savefig('noise-average_prediction_comparison.png')
+# 创建第二个y轴，用于绘制MSE
+ax2 = ax1.twinx()
+color = 'tab:orange'
+ax2.set_ylabel('Test MSE', color=color)
+ax2.plot(seeds, test_mse, 'o--', color=color, label='Test MSE')
+ax2.tick_params(axis='y', labelcolor=color)
+
+# 添加图例
+fig.tight_layout()
+fig.legend(loc="upper right", bbox_to_anchor=(1, 1), bbox_transform=ax1.transAxes)
+
+# 设置图表标题
+plt.title('Test MAE and MSE for Different Seeds')
+
+# 保存并展示图表
+plt.savefig('noisetest_metrics_comparison.png')
 plt.show()
