@@ -8,10 +8,11 @@ import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
 # 读取CSV数据
-df = pd.read_csv('weather.csv', index_col='date', parse_dates=True)
+df = pd.read_csv('ETTh1.csv', index_col='date', parse_dates=True)
 
-# 选择OT列作为特征和目标列
-data = df[['OT']]
+# 选择所有特征和目标列
+features = ['HUFL', 'HULL', 'MUFL', 'MULL', 'LUFL', 'LULL', 'OT']
+data = df[features]
 
 # 数据归一化
 scaler = MinMaxScaler(feature_range=(0, 1))
@@ -22,9 +23,8 @@ data_scaled = scaler.fit_transform(data)
 def create_dataset(data, look_back=1):
     X, Y = [], []
     for i in range(len(data) - look_back - 1):
-        a = data[i:(i + look_back), 0]
-        X.append(a)
-        Y.append(data[i + look_back, 0])
+        X.append(data[i:(i + look_back)])
+        Y.append(data[i + look_back, -1])
     return np.array(X), np.array(Y)
 
 
@@ -39,23 +39,24 @@ test_size = len(X) - train_size - val_size
 X_train, X_val, X_test = X[:train_size], X[train_size:train_size + val_size], X[train_size + val_size:]
 Y_train, Y_val, Y_test = Y[:train_size], Y[train_size:train_size + val_size], Y[train_size + val_size:]
 
+# 转换为张量
+X_train = torch.tensor(X_train, dtype=torch.float32)
+Y_train = torch.tensor(Y_train, dtype=torch.float32).reshape(-1, 1)
+X_val = torch.tensor(X_val, dtype=torch.float32)
+Y_val = torch.tensor(Y_val, dtype=torch.float32).reshape(-1, 1)
+X_test = torch.tensor(X_test, dtype=torch.float32)
+Y_test = torch.tensor(Y_test, dtype=torch.float32).reshape(-1, 1)
 
-# 为训练集和验证集添加标签噪声（高斯噪声）
-def add_label_noise(labels, noise_ratio, seed):
-    if seed is not None:
-        np.random.seed(seed)
-    noise_std = noise_ratio * labels.min()  # 使用 labels.min() 计算噪声标准差
-    noise = np.random.normal(0, noise_std, size=labels.shape)
-    labels_noisy = labels + noise
-    return labels_noisy
+# 创建数据加载器
+batch_size = 32
+train_dataset = TensorDataset(X_train, Y_train)
+train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
+val_dataset = TensorDataset(X_val, Y_val)
+val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-def set_seed(seed):
-    np.random.seed(seed)
-    torch.manual_seed(seed)
-    if torch.cuda.is_available():
-        torch.cuda.manual_seed(seed)
-
+test_dataset = TensorDataset(X_test, Y_test)
+test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
 # 检查是否可以使用 CUDA
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -78,40 +79,25 @@ class LSTMModel(nn.Module):
         return predictions
 
 
+def set_seed(seed):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+
+
+# 训练和评估函数
 def train_and_evaluate(seed):
     set_seed(seed)
     print(f"Using seed: {seed}")
 
-    noise_ratio = 0.2  # 噪声比例为100%
-    Y_train_noisy = add_label_noise(Y_train, noise_ratio, seed)
-    Y_val_noisy = add_label_noise(Y_val, noise_ratio, seed)
-
-    # 转换为张量
-    X_train_tensor = torch.tensor(X_train, dtype=torch.float32).reshape(-1, look_back, 1)
-    Y_train_noisy_tensor = torch.tensor(Y_train_noisy, dtype=torch.float32).reshape(-1, 1)
-    X_val_tensor = torch.tensor(X_val, dtype=torch.float32).reshape(-1, look_back, 1)
-    Y_val_noisy_tensor = torch.tensor(Y_val_noisy, dtype=torch.float32).reshape(-1, 1)
-    X_test_tensor = torch.tensor(X_test, dtype=torch.float32).reshape(-1, look_back, 1)
-    Y_test_tensor = torch.tensor(Y_test, dtype=torch.float32).reshape(-1, 1)
-
-    # 创建数据加载器
-    batch_size = 32
-    train_dataset = TensorDataset(X_train_tensor, Y_train_noisy_tensor)
-    train_dataloader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-
-    val_dataset = TensorDataset(X_val_tensor, Y_val_noisy_tensor)
-    val_dataloader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-
-    test_dataset = TensorDataset(X_test_tensor, Y_test_tensor)
-    test_dataloader = DataLoader(test_dataset, batch_size=batch_size, shuffle=False)
-
     # 实例化模型、定义损失函数和优化器
-    model = LSTMModel(input_size=1, hidden_layer_size=50, output_size=1).to(device)
+    model = LSTMModel(input_size=X_train.shape[2], hidden_layer_size=50, output_size=1).to(device)
     loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # 训练模型
-    epochs = 300
+    epochs = 333
     best_val_loss = float('inf')
 
     for epoch in range(epochs):
@@ -140,35 +126,51 @@ def train_and_evaluate(seed):
         val_loss /= len(val_dataloader)
         if val_loss < best_val_loss:
             best_val_loss = val_loss
-            torch.save(model.state_dict(), 'noisebest_model.pth')
+            torch.save(model.state_dict(), f'best_model_seed_{seed}.pth')
 
         if epoch % 10 == 0:
             print(f'Epoch {epoch} loss: {epoch_loss / len(train_dataloader)}, Validation loss: {val_loss}')
 
     # 加载最佳模型
-    model.load_state_dict(torch.load('noisebest_model.pth'))
+    model.load_state_dict(torch.load(f'best_model_seed_{seed}.pth'))
     model.eval()
     with torch.no_grad():
-        test_predict = model(X_test_tensor.to(device)).cpu().numpy()
+        train_predict = model(X_train.to(device)).cpu().numpy()
+        val_predict = model(X_val.to(device)).cpu().numpy()
+        test_predict = model(X_test.to(device)).cpu().numpy()
 
     # 反归一化预测结果
-    test_predict = scaler.inverse_transform(test_predict)
-    Y_test_inv = scaler.inverse_transform(Y_test_tensor.cpu().numpy())
+    train_predict = scaler.inverse_transform(
+        np.hstack((np.zeros((train_predict.shape[0], data.shape[1] - 1)), train_predict)))[:, -1]
+    Y_train_inv = scaler.inverse_transform(
+        np.hstack((np.zeros((Y_train.shape[0], data.shape[1] - 1)), Y_train.cpu().numpy())))[:, -1]
+    val_predict = scaler.inverse_transform(
+        np.hstack((np.zeros((val_predict.shape[0], data.shape[1] - 1)), val_predict)))[:, -1]
+    Y_val_inv = scaler.inverse_transform(
+        np.hstack((np.zeros((Y_val.shape[0], data.shape[1] - 1)), Y_val.cpu().numpy())))[:, -1]
+    test_predict = scaler.inverse_transform(
+        np.hstack((np.zeros((test_predict.shape[0], data.shape[1] - 1)), test_predict)))[:, -1]
+    Y_test_inv = scaler.inverse_transform(
+        np.hstack((np.zeros((Y_test.shape[0], data.shape[1] - 1)), Y_test.cpu().numpy())))[:, -1]
 
     test_mae = mean_absolute_error(Y_test_inv, test_predict)
     test_mse = mean_squared_error(Y_test_inv, test_predict)
 
+    # 打印每个种子的结果
     print(f'Seed {seed}, Test MAE: {test_mae}, Test MSE: {test_mse}')
 
-    return test_mae, test_mse
+    return test_mae, test_mse, test_predict, Y_test_inv
 
-
-seeds = [42, 2021, 1234, 5678]
+seeds = [42, 0, 1, 2, 3]
+# 多种子训练和评估
+# seeds = [42, 2021, 1234, 5678]
+all_test_predictions = []
 results = []
 
 for seed in seeds:
-    result = train_and_evaluate(seed)
-    results.append(result)
+    test_mae, test_mse, test_predict, Y_test_inv = train_and_evaluate(seed)
+    results.append((test_mae, test_mse))
+    all_test_predictions.append(test_predict)
 
 # 计算平均值和方差
 test_mae, test_mse = zip(*results)
@@ -179,6 +181,12 @@ std_mse = np.std(test_mse)
 
 print(f'Average Test MAE: {mean_mae}, Standard Deviation: {std_mae}')
 print(f'Average Test MSE: {mean_mse}, Standard Deviation: {std_mse}')
+
+# 计算平均预测结果
+average_test_predict = np.mean(all_test_predictions, axis=0)
+
+# 确保绘图时的长度一致
+test_indices = data.index[train_size + val_size + look_back:train_size + val_size + look_back + len(Y_test_inv)]
 
 # 可视化结果
 fig, ax1 = plt.subplots()
@@ -205,5 +213,14 @@ fig.legend(loc="upper right", bbox_to_anchor=(1, 1), bbox_transform=ax1.transAxe
 plt.title('Test MAE and MSE for Different Seeds')
 
 # 保存并展示图表
-plt.savefig('noisetest_metrics_comparison.png')
+plt.savefig('test_metrics_comparison.png')
+plt.show()
+
+# 绘制平均预测结果和真实值的比较图
+plt.figure(figsize=(10, 6))
+plt.plot(test_indices, Y_test_inv, label='True Values')
+plt.plot(test_indices, average_test_predict, label='Average Predictions', alpha=0.7)
+plt.title('Average Test Predictions vs True Values')
+plt.legend()
+plt.savefig('average_test_predictions_vs_true_values.png')
 plt.show()

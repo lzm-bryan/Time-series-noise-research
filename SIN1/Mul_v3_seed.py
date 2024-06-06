@@ -9,25 +9,23 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.model_selection import ParameterGrid
 
 # 读取CSV数据
-df = pd.read_csv('weather.csv', index_col='date', parse_dates=True)
+df = pd.read_csv('ETTh1.csv', index_col='date', parse_dates=True)
 
-# 选择OT列作为特征和目标列
-data = df[['OT']]
+# 选择所有特征和目标列
+features = ['HUFL', 'HULL', 'MUFL', 'MULL', 'LUFL', 'LULL', 'OT']
+data = df[features]
 
 # 数据归一化
 scaler = MinMaxScaler(feature_range=(0, 1))
 data_scaled = scaler.fit_transform(data)
 
-
 # 创建数据集
 def create_dataset(data, look_back=1):
     X, Y = [], []
     for i in range(len(data) - look_back - 1):
-        a = data[i:(i + look_back), 0]
-        X.append(a)
-        Y.append(data[i + look_back, 0])
+        X.append(data[i:(i + look_back)])
+        Y.append(data[i + look_back, -1])
     return np.array(X), np.array(Y)
-
 
 look_back = 7
 X, Y = create_dataset(data_scaled, look_back)
@@ -42,7 +40,6 @@ Y_train, Y_val, Y_test = Y[:train_size], Y[train_size:train_size + val_size], Y[
 
 print('Y_train', Y_train.shape, Y_train)
 
-
 # 为训练集和验证集添加标签噪声（高斯噪声）
 def add_label_noise(labels, noise_ratio, seed=None):
     if seed is not None:
@@ -52,18 +49,15 @@ def add_label_noise(labels, noise_ratio, seed=None):
     labels_noisy = labels + noise
     return labels_noisy
 
-
 def set_seed(seed):
     np.random.seed(seed)
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed(seed)
 
-
 # 检查是否可以使用 CUDA
-device = torch.device("cuda:3" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
-
 
 # 定义LSTM模型
 class LSTMModel(nn.Module):
@@ -81,7 +75,6 @@ class LSTMModel(nn.Module):
         predictions = self.linear(lstm_out[:, -1])
         return predictions
 
-
 # 定义加权MSE损失函数
 class WeightedMSELoss(nn.Module):
     def __init__(self, base_loss=nn.MSELoss()):
@@ -93,21 +86,20 @@ class WeightedMSELoss(nn.Module):
         weighted_loss = loss * weight
         return weighted_loss.mean()
 
-
 def train_and_evaluate(seed, params):
     set_seed(seed)
     print(f"Using seed: {seed}")
 
-    noise_ratio = 0.2  # 噪声比例为100%
+    noise_ratio = 1  # 噪声比例为100%
     Y_train_noisy = add_label_noise(Y_train, noise_ratio, seed)
     Y_val_noisy = add_label_noise(Y_val, noise_ratio, seed)
 
     # 转换为张量
-    X_train_tensor = torch.tensor(X_train, dtype=torch.float32).reshape(-1, look_back, 1)
+    X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
     Y_train_noisy_tensor = torch.tensor(Y_train_noisy, dtype=torch.float32).reshape(-1, 1)
-    X_val_tensor = torch.tensor(X_val, dtype=torch.float32).reshape(-1, look_back, 1)
+    X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
     Y_val_noisy_tensor = torch.tensor(Y_val_noisy, dtype=torch.float32).reshape(-1, 1)
-    X_test_tensor = torch.tensor(X_test, dtype=torch.float32).reshape(-1, look_back, 1)
+    X_test_tensor = torch.tensor(X_test, dtype=torch.float32)
     Y_test_tensor = torch.tensor(Y_test, dtype=torch.float32).reshape(-1, 1)
 
     # 创建数据加载器
@@ -125,12 +117,12 @@ def train_and_evaluate(seed, params):
     correction_threshold = params['correction_threshold']
     weight_decay_factor = params['weight_decay_factor']
 
-    model = LSTMModel(input_size=1, hidden_layer_size=100, num_layers=2, dropout=0.2).to(device)
+    model = LSTMModel(input_size=X_train.shape[2], hidden_layer_size=100, num_layers=2, dropout=0.2).to(device)
     base_loss_function = nn.MSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     # 初次训练模型
-    epochs = 100
+    epochs = 111
     print(f"Training with params: {params}")
     best_val_loss = float('inf')
     for epoch in range(epochs):
@@ -162,7 +154,7 @@ def train_and_evaluate(seed, params):
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                torch.save(model.state_dict(), '1best_model.pth')
+                torch.save(model.state_dict(), 'best_model.pth')
 
     # 校正标签并使用加权损失函数重新训练
     model.eval()
@@ -181,9 +173,8 @@ def train_and_evaluate(seed, params):
                                             torch.tensor(Y_train_noisy_np, dtype=torch.float32).reshape(-1, 1), weights)
     train_dataloader_corrected = DataLoader(train_dataset_corrected, batch_size=batch_size, shuffle=True)
 
-    model = LSTMModel(input_size=1, hidden_layer_size=100, num_layers=2, dropout=0.2).to(device)
-    # weighted_loss_function = WeightedMSELoss()
-    weighted_loss_function = nn.MSELoss()
+    model = LSTMModel(input_size=X_train.shape[2], hidden_layer_size=100, num_layers=2, dropout=0.2).to(device)
+    weighted_loss_function = WeightedMSELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
     num_iterations = 3
@@ -197,8 +188,7 @@ def train_and_evaluate(seed, params):
 
                 optimizer.zero_grad()
                 y_pred = model(batch_X)
-                # loss = weighted_loss_function(y_pred, batch_Y, batch_weights)
-                loss = weighted_loss_function(y_pred, batch_Y)
+                loss = weighted_loss_function(y_pred, batch_Y, batch_weights)
                 loss.backward()
                 optimizer.step()
 
@@ -220,9 +210,9 @@ def train_and_evaluate(seed, params):
 
                 if val_loss < best_val_loss:
                     best_val_loss = val_loss
-                    torch.save(model.state_dict(), '1best_model.pth')
+                    torch.save(model.state_dict(), 'best_model.pth')
 
-        model.load_state_dict(torch.load('1best_model.pth'))
+        model.load_state_dict(torch.load('best_model.pth'))
         model.eval()
         with torch.no_grad():
             train_predict = model(X_train_tensor.to(device)).cpu().numpy()
@@ -237,13 +227,13 @@ def train_and_evaluate(seed, params):
                                                 weights)
         train_dataloader_corrected = DataLoader(train_dataset_corrected, batch_size=batch_size, shuffle=True)
 
-    model.load_state_dict(torch.load('1best_model.pth'))
+    model.load_state_dict(torch.load('best_model.pth'))
     model.eval()
     with torch.no_grad():
         test_predict = model(X_test_tensor.to(device)).cpu().numpy()
 
-    test_predict = scaler.inverse_transform(test_predict)
-    Y_test_inv = scaler.inverse_transform(Y_test_tensor.cpu().numpy())
+    test_predict = scaler.inverse_transform(np.hstack((np.zeros((test_predict.shape[0], data.shape[1] - 1)), test_predict)))[:, -1]
+    Y_test_inv = scaler.inverse_transform(np.hstack((np.zeros((Y_test_tensor.shape[0], data.shape[1] - 1)), Y_test_tensor.cpu().numpy())))[:, -1]
 
     test_mae = mean_absolute_error(Y_test_inv, test_predict)
     test_mse = mean_squared_error(Y_test_inv, test_predict)
@@ -251,14 +241,12 @@ def train_and_evaluate(seed, params):
     print(f'Seed {seed}, Test MAE: {test_mae}, Test MSE: {test_mse}')
 
     return test_mae, test_mse
-# seeds = [5678]
-# results = []
-
-seeds = [42, 2021, 1234, 5678]
+seeds = [42, 0, 1, 2, 3]
+# seeds = [42, 2021, 1234, 5678]
 results = []
 
 # 使用最佳参数训练模型
-best_params = {'correction_threshold': 0.2, 'weight_decay_factor': 0.9}
+best_params = {'correction_threshold': 0.1, 'weight_decay_factor': 0.9}
 
 for seed in seeds:
     result = train_and_evaluate(seed, best_params)
